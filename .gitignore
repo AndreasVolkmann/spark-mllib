@@ -1,0 +1,18 @@
+# IntelliJ project files
+.idea
+out
+gen
+.gradle
+/build/
+
+# Ignore Gradle GUI config
+gradle-app.setting
+
+# Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
+!gradle-wrapper.jar
+
+
+*.jar
+*.log
+app
+data
