@@ -1,8 +1,10 @@
 import org.apache.spark.SparkConf
+import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.JavaSparkContext
+import org.apache.spark.mllib.recommendation.ALS
 import org.apache.spark.mllib.recommendation.MatrixFactorizationModel
 import org.apache.spark.mllib.recommendation.Rating
-import org.apache.spark.rdd.RDD
+import scala.Tuple2
 import java.io.File
 
 object MovieLensALS {
@@ -59,19 +61,58 @@ object MovieLensALS {
         val numValidation = validation.count()
         val numTest = test.count()
 
-        println("Training: $numValidation, validation: $numValidation, test: $numTest")
+        println("Training: $numTraining, validation: $numValidation, test: $numTest")
+
+        val ranks = listOf(8, 12)
+        val lambdas = listOf(1.0, 10.0)
+        val numIters = listOf(10, 20)
+        var bestModel: MatrixFactorizationModel? = null
+        var bestValidationRmse = Double.MAX_VALUE
+        var bestRank = 0
+        var bestLambda = -1.0
+        var bestNumIter = -1
+        for (i in 0..1) {
+            val rank = ranks[i];
+            val lambda = lambdas[i];
+            val numIter = numIters[i];
+            val model = ALS.train(training.rdd(), rank, numIter, lambda)
+            val validationRmse = computeRmse(model, validation, numValidation)
+            println("RMSE (validation) = $validationRmse for the model trained with rank = $rank, lambda = $lambda, and numIter = $numIter.")
+            if (validationRmse < bestValidationRmse) {
+                bestModel = model
+                bestValidationRmse = validationRmse
+                bestRank = rank
+                bestLambda = lambda
+                bestNumIter = numIter
+            }
+        }
+
+        val testRmse = computeRmse(bestModel!!, test, numTest)
+
+        println("The best model was trained with rank = $bestRank and lambda $bestLambda" +
+                " and numIter = $bestNumIter, and its RMSE on the test set is $testRmse.")
+
+
+
 
         sc.stop()
     }
 
-    fun computeRmse(model: MatrixFactorizationModel, data: RDD<Rating>, n: Long): Double {
-        TODO()
+    fun computeRmse(model: MatrixFactorizationModel, data: JavaRDD<Rating>, n: Long): Double {
+        val map = data.mapToPair { r -> Tuple2(r.user(), r.product()) }
+        val predictions = model.predict(map)
+        val predictionsAndRatings = predictions.mapToPair { Tuple2(Tuple2(it.user(), it.product()), it.rating()) }
+                .join(data.mapToPair { Tuple2(Tuple2(it.user(), it.product()), it.rating()) })
+                .values()
+        return Math.sqrt(predictionsAndRatings
+                .map { (it._1 - it._2) * (it._1 - it._2) }
+                .reduce { v1, v2 -> v1 + v2 } / n)
     }
 
     fun loadRatings(path: String) = File("data/$path").readLines().map {
         val fields = it.split("::")
         toRating(fields)
-    }
+    }.filter { it.rating() > 0.0 }
 
 
     fun toRating(fields: List<String>) = Rating(fields[0].toInt(), fields[1].toInt(), fields[2].toDouble())
