@@ -12,6 +12,7 @@ object MovieLensALS {
 
         val conf = SparkConf()
                 .setAppName("MovieLensALS")
+                .setMaster("local")
                 .set("spark.executor.memory", "2g")
         val sc = JavaSparkContext(conf)
 
@@ -35,6 +36,30 @@ object MovieLensALS {
         }.collect().toMap()
 
         // code here
+        val numRatings = ratings.count()
+        val numUsers = ratings.map { it.second.user() }.distinct().count()
+        val numMovies = ratings.map { it.second.product() }.distinct().count()
+        println("Got $numRatings ratings from $numUsers users on $numMovies movies.")
+
+        val numPartitions = 4
+        val training = ratings.filter { it.first < 6 }
+                .map { it.second }
+                .union(myRatingsRDD)
+                .repartition(numPartitions)
+                .cache()
+        val validation = ratings.filter { it.first in 6..7 }
+                .map { it.second }
+                .repartition(numPartitions)
+                .cache()
+        val test = ratings.filter { it.first >= 8 }
+                .map { it.second }
+                .cache()
+
+        val numTraining = training.count()
+        val numValidation = validation.count()
+        val numTest = test.count()
+
+        println("Training: $numValidation, validation: $numValidation, test: $numTest")
 
         sc.stop()
     }
