@@ -92,10 +92,33 @@ object MovieLensALS {
         println("The best model was trained with rank = $bestRank and lambda $bestLambda" +
                 " and numIter = $bestNumIter, and its RMSE on the test set is $testRmse.")
 
+        // create a naive baseline and compare it with the best model
+        val meanRating = training.union(validation).map(Rating::rating).mean()
+        val baselineRmse = Math.sqrt(test.map { (meanRating - it.rating()) * (meanRating - it.rating()) }.mean())
+        val improvement = (baselineRmse - testRmse) / baselineRmse * 100
+        println("The best model imrpoves the baseline by $improvement%.")
 
+        // make personalized recommendations
 
+        val myRatedMovieIds = myRatings.map(Rating::product).toSet()
+        val candidates = sc.parallelize(movies.keys.filterNot { myRatedMovieIds.contains(it) })
+        val recommendations = bestModel
+                .predict(candidates.mapToPair { Tuple2(0, it) })
+                .collect()
+                .sortedByDescending(Rating::rating)
+                .take(50)
+
+        println("Movies recommended for you: ")
+        recommendations.forEachIndexed { i, r ->
+            println("$i: ${movies[r.product()]}")
+        }
 
         sc.stop()
+    }
+
+    fun JavaRDD<Double>.mean(): Double {
+        val size = this.count()
+        return this.reduce { v1, v2 -> v1 + v2 } / size
     }
 
     fun computeRmse(model: MatrixFactorizationModel, data: JavaRDD<Rating>, n: Long): Double {
